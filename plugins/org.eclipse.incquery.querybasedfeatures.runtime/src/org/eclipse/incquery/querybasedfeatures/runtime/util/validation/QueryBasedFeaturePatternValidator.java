@@ -121,26 +121,27 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
         } else {
             if (feature instanceof EReference) {
                 boolean featureError = false;
-                if(!feature.isDerived()) {
-                    validator.error(String.format("Feature %s is not derived.",featureName),
-                            contextForFeature, contextESFForFeature, METAMODEL_ISSUE_CODE);
+                if (!feature.isDerived()) {
+                    validator.error(String.format("Feature %s is not derived.", featureName), contextForFeature,
+                            contextESFForFeature, METAMODEL_ISSUE_CODE);
                     featureError = true;
                 }
-                if(!feature.isTransient()) {
-                    validator.error(String.format("Feature %s is not transient.",featureName),
-                            contextForFeature, contextESFForFeature, METAMODEL_ISSUE_CODE);
+                if (!feature.isTransient()) {
+                    validator.error(String.format("Feature %s is not transient.", featureName), contextForFeature,
+                            contextESFForFeature, METAMODEL_ISSUE_CODE);
                     featureError = true;
                 }
-                if(!feature.isVolatile()) {
-                    validator.error(String.format("Feature %s is not volatile.",featureName),
-                            contextForFeature, contextESFForFeature, METAMODEL_ISSUE_CODE);
+                if (!feature.isVolatile()) {
+                    validator.error(String.format("Feature %s is not volatile.", featureName), contextForFeature,
+                            contextESFForFeature, METAMODEL_ISSUE_CODE);
                     featureError = true;
                 }
-                if(featureError) {
+                if (featureError) {
                     return;
                 }
                 if (feature.isChangeable()) {
-                    validator.warning(String.format("Feature %s is changeable, make sure to implement setter.",featureName),
+                    validator.warning(
+                            String.format("Feature %s is changeable, make sure to implement setter.", featureName),
                             contextForFeature, contextESFForFeature, METAMODEL_ISSUE_CODE);
                 }
             }
@@ -184,20 +185,18 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
                 kind = QueryBasedFeatureKind.SINGLE_REFERENCE;
             } else if (QueryBasedFeatureKind.getStringValue(QueryBasedFeatureKind.MANY_REFERENCE).equals(kindStr)) {
                 if (feature.getUpperBound() != -1 && feature.getUpperBound() < 2) {
-                    validator.error(String
-                            .format("Upper bound of feature %s should be -1 or larger than 1 for many 'kind'.",
-                                    featureName), ref, PatternLanguagePackage.Literals.STRING_VALUE__VALUE,
-                                    METAMODEL_ISSUE_CODE);
+                    validator.error(String.format(
+                            "Upper bound of feature %s should be -1 or larger than 1 for many 'kind'.", featureName),
+                            ref, PatternLanguagePackage.Literals.STRING_VALUE__VALUE, METAMODEL_ISSUE_CODE);
                     return;
                 }
                 kind = QueryBasedFeatureKind.MANY_REFERENCE;
             } else if (QueryBasedFeatureKind.getStringValue(QueryBasedFeatureKind.COUNTER).equals(kindStr)
                     || QueryBasedFeatureKind.getStringValue(QueryBasedFeatureKind.SUM).equals(kindStr)) {
                 if (!classifier.equals(EcorePackage.Literals.EINT)) {
-                    validator
-                            .error(String.format("Type of feature %s should be EInt for %s 'kind'.", featureName,
-                                    kindStr), ref, PatternLanguagePackage.Literals.STRING_VALUE__VALUE,
-                                    METAMODEL_ISSUE_CODE);
+                    validator.error(
+                            String.format("Type of feature %s should be EInt for %s 'kind'.", featureName, kindStr),
+                            ref, PatternLanguagePackage.Literals.STRING_VALUE__VALUE, METAMODEL_ISSUE_CODE);
                     return;
                 }
                 kind = QueryBasedFeatureKind.COUNTER;
@@ -207,12 +206,14 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
                 kind = QueryBasedFeatureKind.ITERATION;
             }
         }
-        
-        if (!classifier.equals(targetClassifier) && (kind == QueryBasedFeatureKind.SINGLE_REFERENCE || kind == QueryBasedFeatureKind.MANY_REFERENCE)) {
+
+        if (!classifier.equals(targetClassifier)
+                && (kind == QueryBasedFeatureKind.SINGLE_REFERENCE || kind == QueryBasedFeatureKind.MANY_REFERENCE)) {
             validator.warning(String.format("The 'target' parameter type %s is not equal to actual feature type %s.",
                     featureName, sourceClass.getName()), target, PatternLanguagePackage.Literals.VARIABLE__TYPE,
                     PATTERN_ISSUE_CODE);
         }
+
         // 6. keepCache (if set) is correct for the kind
         ref = CorePatternLanguageHelper.getFirstAnnotationParameter(annotation, "keepCache");
         if (ref instanceof BoolValue) {
