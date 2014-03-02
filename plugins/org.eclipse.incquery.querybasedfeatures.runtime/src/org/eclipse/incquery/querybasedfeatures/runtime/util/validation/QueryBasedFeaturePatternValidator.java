@@ -10,6 +10,12 @@
  *******************************************************************************/
 package org.eclipse.incquery.querybasedfeatures.runtime.util.validation;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
+import org.eclipse.emf.common.util.EList;
+import org.eclipse.emf.common.util.TreeIterator;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EClassifier;
 import org.eclipse.emf.ecore.EObject;
@@ -17,11 +23,21 @@ import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.EStructuralFeature;
 import org.eclipse.emf.ecore.EcorePackage;
 import org.eclipse.incquery.patternlanguage.annotations.IPatternAnnotationAdditionalValidator;
+import org.eclipse.incquery.patternlanguage.emf.eMFPatternLanguage.EClassifierConstraint;
 import org.eclipse.incquery.patternlanguage.emf.types.IEMFTypeProvider;
 import org.eclipse.incquery.patternlanguage.helper.CorePatternLanguageHelper;
+import org.eclipse.incquery.patternlanguage.patternLanguage.AggregatedValue;
 import org.eclipse.incquery.patternlanguage.patternLanguage.Annotation;
 import org.eclipse.incquery.patternlanguage.patternLanguage.BoolValue;
+import org.eclipse.incquery.patternlanguage.patternLanguage.CheckConstraint;
+import org.eclipse.incquery.patternlanguage.patternLanguage.CompareConstraint;
+import org.eclipse.incquery.patternlanguage.patternLanguage.CompareFeature;
+import org.eclipse.incquery.patternlanguage.patternLanguage.Constraint;
+import org.eclipse.incquery.patternlanguage.patternLanguage.PathExpressionConstraint;
 import org.eclipse.incquery.patternlanguage.patternLanguage.Pattern;
+import org.eclipse.incquery.patternlanguage.patternLanguage.PatternBody;
+import org.eclipse.incquery.patternlanguage.patternLanguage.PatternCall;
+import org.eclipse.incquery.patternlanguage.patternLanguage.PatternCompositionConstraint;
 import org.eclipse.incquery.patternlanguage.patternLanguage.PatternLanguagePackage;
 import org.eclipse.incquery.patternlanguage.patternLanguage.StringValue;
 import org.eclipse.incquery.patternlanguage.patternLanguage.ValueReference;
@@ -29,7 +45,11 @@ import org.eclipse.incquery.patternlanguage.patternLanguage.Variable;
 import org.eclipse.incquery.patternlanguage.patternLanguage.VariableValue;
 import org.eclipse.incquery.patternlanguage.validation.IIssueCallback;
 import org.eclipse.incquery.querybasedfeatures.runtime.QueryBasedFeatureKind;
+import org.eclipse.incquery.runtime.base.api.FunctionalDependency;
+import org.eclipse.incquery.runtime.base.api.FunctionalDependencyHelper;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.inject.Inject;
 
 /**
@@ -205,6 +225,15 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
                         PatternLanguagePackage.Literals.STRING_VALUE__VALUE, ANNOTATION_ISSUE_CODE);
                 kind = QueryBasedFeatureKind.ITERATION;
             }
+
+            // Check for mismatch between specified and calculated kind
+            if (kind != null) {
+                if (isParameterKindIncorrect(pattern, target, kind)) {
+                    validator.error("Specified kind is incorrect.", ref,
+                            PatternLanguagePackage.Literals.STRING_VALUE__VALUE, ANNOTATION_ISSUE_CODE);
+                }
+            }
+
         }
 
         if (!classifier.equals(targetClassifier)
@@ -231,7 +260,258 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
                 }
             }
         }
+    }
 
+    private final static boolean isParameterKindIncorrect(Pattern pattern, Variable parameter,
+            QueryBasedFeatureKind kind) {
+        if (!pattern.getParameters().contains(parameter))
+            throw new IllegalArgumentException("The specified variable is not a parameter of the specified pattern.");
+
+        for (PatternBody body : pattern.getBodies()) {
+            if (isVariableKindIncorrect(pattern, body, parameter, kind))
+                return true;
+        }
+
+        return false;
+    }
+
+    private final static boolean isVariableKindIncorrect(Pattern pattern, PatternBody body, Variable variable,
+            QueryBasedFeatureKind kind) {
+        for (Constraint constraint : body.getConstraints()) {
+            if (isVariableKindIncorrect(pattern, body, constraint, variable, kind))
+                return true;
+        }
+        return false;
+    }
+
+    private final static boolean isVariableKindIncorrect(Pattern pattern, PatternBody body, Constraint constraint,
+            Variable variable, QueryBasedFeatureKind kind) {
+        if (constraint instanceof CheckConstraint) {
+
+        }
+
+        if (constraint instanceof CompareConstraint) {
+            return isVariableKindIncorrect(pattern, body, (CompareConstraint) constraint, variable, kind);
+        }
+
+        if (constraint instanceof EClassifierConstraint) {
+
+        }
+
+        if (constraint instanceof PathExpressionConstraint) {
+            return isVariableKindIncorrect((PathExpressionConstraint) constraint, variable, kind);
+        }
+
+        if (constraint instanceof PatternCompositionConstraint) {
+            return isVariableKindIncorrect(pattern, (PatternCompositionConstraint) constraint, variable, kind);
+        }
+
+        return false;
+    }
+
+    private final static boolean isVariableKindIncorrect(Pattern pattern, PatternBody body,
+            CompareConstraint constraint, Variable variable, QueryBasedFeatureKind kind) {
+        if (constraint.getFeature() == CompareFeature.EQUALITY) {
+            if (constraint.getLeftOperand() instanceof VariableValue
+                    && ((VariableValue) constraint.getLeftOperand()).getValue().getVariable().equals(variable)) {
+                return isValueReferenceIncorrectKind(pattern, body, variable, kind, constraint.getRightOperand());
+            }
+            if (constraint.getRightOperand() instanceof VariableValue
+                    && ((VariableValue) constraint.getRightOperand()).getValue().getVariable().equals(variable)) {
+                return isValueReferenceIncorrectKind(pattern, body, variable, kind, constraint.getLeftOperand());
+            }
+        }
+
+        return false;
+    }
+
+    private final static boolean isVariableKindIncorrect(PathExpressionConstraint constraint, Variable variable,
+            QueryBasedFeatureKind kind) {
+        if ((kind == QueryBasedFeatureKind.COUNTER || kind == QueryBasedFeatureKind.SUM)
+                && containsReferenceToVariable(constraint, variable)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private final static boolean containsReferenceToVariable(PathExpressionConstraint constraint, Variable variable) {
+        TreeIterator<EObject> it = constraint.eAllContents();
+        while (it.hasNext()) {
+            if (it.next().equals(variable))
+                return true;
+        }
+
+        return false;
+    }
+
+    private final static boolean isVariableKindIncorrect(Pattern pattern, PatternCompositionConstraint constraint,
+            Variable variable, QueryBasedFeatureKind kind) {
+        PatternCall call = constraint.getCall();
+        EList<ValueReference> callParameters = call.getParameters();
+        for (int i = 0; i < callParameters.size(); ++i) {
+            if (callParameters.get(i) instanceof VariableValue
+                    && ((VariableValue) callParameters.get(i)).getValue().getVariable().equals(variable)) {
+                return isParameterKindIncorrect(call.getPatternRef(), call.getPatternRef().getParameters().get(i), kind);
+            }
+        }
+
+        return false;
+    }
+
+    private final static boolean isValueReferenceIncorrectKind(Pattern pattern, PatternBody body, Variable variable,
+            QueryBasedFeatureKind kind, ValueReference reference) {
+        if (reference instanceof AggregatedValue
+                && !(kind == QueryBasedFeatureKind.COUNTER || kind == QueryBasedFeatureKind.SUM)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private final static Set<FunctionalDependency<Variable>> getParameterDependencies(Pattern pattern) {
+        return FunctionalDependencyHelper.project(getDependencies(pattern), Sets.newHashSet(pattern.getParameters()));
+    }
+
+    private final static Set<FunctionalDependency<Variable>> getDependencies(Pattern pattern) {
+        Set<FunctionalDependency<Variable>> result = null;
+
+        for (PatternBody body : pattern.getBodies()) {
+            Set<FunctionalDependency<Variable>> dependencies = getDependencies(body);
+
+            if (result == null) {
+                result = dependencies;
+            } else {
+                result.addAll(dependencies);
+            }
+        }
+
+        return result;
+    }
+
+    private final static Set<FunctionalDependency<Variable>> getDependencies(PatternBody body) {
+        Set<FunctionalDependency<Variable>> result = null;
+
+        for (Constraint constraint : body.getConstraints()) {
+            Set<FunctionalDependency<Variable>> dependencies = getDependencies(constraint);
+
+            if (result == null) {
+                result = dependencies;
+            } else {
+                result.addAll(dependencies);
+            }
+        }
+
+        return result;
+    }
+
+    private final static Set<FunctionalDependency<Variable>> getDependencies(Constraint constraint) {
+        Set<FunctionalDependency<Variable>> dependencies = new HashSet<FunctionalDependency<Variable>>();
+
+        if (constraint instanceof CompareConstraint) {
+            CompareConstraint compareConstraint = (CompareConstraint) constraint;
+            if (compareConstraint.getFeature() == CompareFeature.EQUALITY) {
+                ValueReference leftOp = compareConstraint.getLeftOperand();
+                ValueReference rightOp = compareConstraint.getRightOperand();
+                Variable leftVar = asVariable(leftOp);
+                Variable rightVar = asVariable(rightOp);
+                Set<Variable> leftVarSet = asVariableSet(leftOp);
+                Set<Variable> rightVarSet = asVariableSet(rightOp);
+
+                if (rightVar != null)
+                    dependencies.add(new FunctionalDependency<Variable>(leftVarSet, rightVar));
+                if (leftVar != null)
+                    dependencies.add(new FunctionalDependency<Variable>(rightVarSet, leftVar));
+            }
+        } else if (constraint instanceof PathExpressionConstraint) {
+            PathExpressionConstraint pathExprConstraint = (PathExpressionConstraint) constraint;
+            Variable src = pathExprConstraint.getHead().getSrc().getVariable();
+            Variable dst = asVariable(pathExprConstraint.getHead().getDst());
+
+            if (dst != null)
+                dependencies.add(new FunctionalDependency<Variable>(asVariableSet(src), dst));
+
+        } else if (constraint instanceof PatternCompositionConstraint) {
+            PatternCompositionConstraint compositionConstraint = (PatternCompositionConstraint) constraint;
+            PatternCall call = compositionConstraint.getCall();
+            Pattern callee = call.getPatternRef();
+
+            Set<FunctionalDependency<Variable>> calleeDependencies = getParameterDependencies(callee);
+            Map<Variable, ValueReference> parameterTranslationTable = getTranslationTable(callee.getParameters(),
+                    call.getParameters());
+
+            dependencies.addAll(translate(calleeDependencies, parameterTranslationTable));
+        }
+
+        return dependencies;
+    }
+
+    private final static Variable asVariable(ValueReference valueRef) {
+        return valueRef instanceof VariableValue ? ((VariableValue) valueRef).getValue().getVariable() : null;
+    }
+
+    private final static Set<Variable> asVariableSet(ValueReference valueRef) {
+        if (valueRef instanceof VariableValue) {
+            return asVariableSet(asVariable(valueRef));
+        } else if (valueRef instanceof AggregatedValue) {
+            AggregatedValue aggrValue = (AggregatedValue) valueRef;
+            Set<Variable> result = Sets.newHashSet();
+            for (ValueReference param : aggrValue.getCall().getParameters()) {
+                result.addAll(asVariableSet(param));
+            }
+            return result;
+        } else {
+            return Sets.newHashSet();
+        }
+    }
+
+    private final static Set<Variable> asVariableSet(Variable var) {
+        return var == null ? Sets.<Variable> newHashSet() : Sets.newHashSet(var);
+    }
+
+    private final static Map<Variable, ValueReference> getTranslationTable(EList<Variable> calleeParams,
+            EList<ValueReference> callParams) {
+        if (calleeParams.size() != callParams.size()) {
+            return null; // TODO: throw some exception
+        }
+
+        Map<Variable, ValueReference> table = Maps.newHashMap();
+
+        for (int i = 0; i < calleeParams.size(); ++i) {
+            table.put(calleeParams.get(i), callParams.get(i));
+        }
+
+        return table;
+    }
+
+    private final static Set<Variable> translateVarSet(Set<Variable> variableSet,
+            Map<Variable, ValueReference> translationTable) {
+        Set<Variable> result = Sets.newHashSet();
+
+        for (Variable var : variableSet) {
+            Variable localVar = asVariable(translationTable.get(var));
+
+            if (localVar != null)
+                result.add(localVar);
+        }
+
+        return result;
+    }
+
+    private final static Set<FunctionalDependency<Variable>> translate(
+            Set<FunctionalDependency<Variable>> dependencies, Map<Variable, ValueReference> translationTable) {
+        Set<FunctionalDependency<Variable>> result = Sets.newHashSet();
+
+        for (FunctionalDependency<Variable> dependency : dependencies) {
+            Variable localDependent = asVariable(translationTable.get(dependency.getDependent()));
+
+            if (localDependent != null) {
+                Set<Variable> localDeterminant = translateVarSet(dependency.getDeterminant(), translationTable);
+                result.add(new FunctionalDependency<Variable>(localDeterminant, localDependent));
+            }
+        }
+
+        return result;
     }
 
 }
