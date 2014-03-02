@@ -14,27 +14,24 @@ package org.eclipse.incquery.runtime.matchers.tuple;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import com.google.common.base.Function;
+import com.google.common.collect.Iterables;
 
 /**
  * @author Gabor Bergmann
  * 
  */
-public abstract class Tuple {
+public abstract class Tuple implements Iterable<Object> {
 
     /**
      * Caches precalculated hash value
      */
-    protected int cachedHash;
-
-    /**
-     * Creates a Tuple instance Derivatives should call calcHash()
-     */
-    protected Tuple() {
-        // calcHash();
-    }
+    private Integer cachedHash;
 
     /**
      * @return number of elements
@@ -49,13 +46,17 @@ public abstract class Tuple {
     public abstract Object get(int index);
 
     /**
+     * Hash calculation. Overrides should keep semantics.
+     */
+    protected int calcHash() {
+        return calcHash(this);
+    }
+
+    /**
      * @return the array containing all elements of this Tuple
      */
     public Object[] getElements() {
-        Object[] allElements = new Object[getSize()];
-        for (int i = 0; i < allElements.length; ++i)
-            allElements[i] = get(i);
-        return allElements;
+        return Iterables.toArray(this, Object.class);
     }
 
     /**
@@ -64,25 +65,25 @@ public abstract class Tuple {
     @SuppressWarnings("unchecked")
     public <T> Set<T> getDistinctElements() {
         Set<T> result = new HashSet<T>();
-        Object[] elements = getElements();
-        for (Object object : elements) {
+        for (Object object : this) {
             result.add((T) object);
         }
         return result;
     }
 
-    /**
-     * Hash calculation. Overrides should keep semantics.
-     */
-    void calcHash() {
+    protected static int calcHash(final Iterable<Object> objects) {
+        return calcHash(objects, 1);
+    }
+
+    protected static int calcHash(final Iterable<Object> objects, final int partialResult) {
         final int PRIME = 31;
-        cachedHash = 1;
-        for (int i = 0; i < getSize(); i++) {
-            cachedHash = PRIME * cachedHash;
-            Object element = get(i);
+        int result = partialResult;
+        for (Object element : objects) {
+            result *= PRIME;
             if (element != null)
-                cachedHash += element.hashCode();
+                result += element.hashCode();
         }
+        return result;
     }
 
     /**
@@ -138,7 +139,7 @@ public abstract class Tuple {
      * @see java.lang.Object#equals(java.lang.Object)
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(final Object obj) {
         if (this == obj)
             return true;
         if (obj == null)
@@ -146,12 +147,12 @@ public abstract class Tuple {
         if (!(obj instanceof Tuple))
             return false;
         final Tuple other = (Tuple) obj;
-        if (cachedHash != other.cachedHash)
+        if (hashCode() != other.hashCode())
             return false;
         return internalEquals(other);
     }
 
-    protected boolean internalEquals(Tuple other) {
+    protected boolean internalEquals(final Tuple other) {
         if (getSize() != other.getSize())
             return false;
         for (int i = 0; i < getSize(); ++i) {
@@ -176,17 +177,17 @@ public abstract class Tuple {
      */
     @Override
     public int hashCode() {
-        /*
-         * final int PRIME = 31; int result = 1; result = PRIME result + Arrays.hashCode(elements); return result;
-         */
-        return cachedHash;
+        if (cachedHash == null) {
+            cachedHash = calcHash();
+        }
+        return cachedHash.intValue();
     }
 
     @Override
     public String toString() {
         StringBuilder s = new StringBuilder();
         s.append("T(");
-        for (Object o : getElements()) {
+        for (Object o : this) {
             s.append(o == null ? "null" : o.toString());
             s.append(';');
         }
@@ -199,13 +200,71 @@ public abstract class Tuple {
      * @param replacement
      * @return
      */
-    public Tuple replaceAll(Object obsolete, Object replacement) {
-        Object[] oldElements = getElements();
-        Object[] newElements = new Object[oldElements.length];
-        for (int i = 0; i < oldElements.length; ++i) {
-            newElements[i] = obsolete.equals(oldElements[i]) ? replacement : oldElements[i];
-        }
-        return new FlatTuple(newElements);
+    public Tuple replaceAll(final Object obsolete, final Object replacement) {
+        return new FlatTuple(Iterables.transform(this, new Function<Object, Object>(){
+            @Override
+            public Object apply(Object arg0) {
+                return obsolete.equals(arg0) ? replacement : arg0;
+            }}));
     }
 
+    /*
+     * (non-Javadoc)
+     * 
+     * @see java.lang.Iterable#iterator()
+     */
+    @Override
+    public Iterator<Object> iterator() {
+        return new TupleIterator(this);
+    }
+
+    /**
+     * Iterator for {@link Tuple}s
+     * 
+     * @author Adam Dudas
+     * 
+     */
+    public class TupleIterator implements Iterator<Object> {
+
+        private int currentIndex;
+        private final Tuple tuple;
+
+        /**
+         * Create a new iterator for the specified tuple
+         */
+        public TupleIterator(final Tuple tuple) {
+            this.tuple = tuple;
+            this.currentIndex = -1;
+        }
+
+        /*
+         * (non-Javadoc)
+         * 
+         * @see java.util.Iterator#hasNext()
+         */
+        @Override
+        public boolean hasNext() {
+            return currentIndex + 1 < tuple.getSize();
+        }
+
+        /*
+         * (non-Javadoc)
+         * 
+         * @see java.util.Iterator#next()
+         */
+        @Override
+        public Object next() {
+            return tuple.get(++currentIndex);
+        }
+
+        /*
+         * (non-Javadoc)
+         * 
+         * @see java.util.Iterator#remove()
+         */
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException("Tuples are immutable.");
+        }
+    }
 }

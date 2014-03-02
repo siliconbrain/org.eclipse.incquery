@@ -14,11 +14,11 @@ package org.eclipse.incquery.runtime.matchers.tuple;
 import java.util.Arrays;
 
 /**
- * Default Tuple implementation
- * @author Gabor Bergmann 
+ * Default tuple implementation
+ * 
+ * @author Gabor Bergmann
  */
 public class FlatTuple extends Tuple {
-
     /**
      * Array of substituted values. DO NOT MODIFY! Use Constructor to build a new instance instead.
      */
@@ -30,28 +30,49 @@ public class FlatTuple extends Tuple {
      * @param elements
      *            array of substitution values
      */
-    public FlatTuple(Object... elements) {
-        this.elements = Arrays.copyOf(elements, elements.length);
-        calcHash();
+    public FlatTuple(final Object... elements) {
+        this.elements = elements;
     }
 
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.eclipse.incquery.runtime.matchers.tuple.Tuple#get(int)
+     */
     @Override
-    public Object get(int index) {
+    public Object get(final int index) {
         return elements[index];
     }
 
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.eclipse.incquery.runtime.matchers.tuple.Tuple#getSize()
+     */
     @Override
     public int getSize() {
         return elements.length;
     }
 
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.eclipse.incquery.runtime.matchers.tuple.Tuple#getElements()
+     */
     @Override
     public Object[] getElements() {
         return elements;
     }
 
+    /*
+     * (non-Javadoc)
+     * 
+     * @see
+     * org.eclipse.incquery.runtime.matchers.tuple.Tuple#internalEquals(org.eclipse.incquery.runtime.matchers.tuple.
+     * Tuple)
+     */
     @Override
-    protected boolean internalEquals(Tuple other) {
+    protected boolean internalEquals(final Tuple other) {
         if (other instanceof FlatTuple) {
             return Arrays.equals(elements, ((FlatTuple) other).elements);
         } else
