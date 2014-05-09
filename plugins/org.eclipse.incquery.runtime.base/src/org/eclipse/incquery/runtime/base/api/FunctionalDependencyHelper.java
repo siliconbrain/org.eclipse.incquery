@@ -82,9 +82,9 @@ public class FunctionalDependencyHelper {
      * Check whether two set of functional dependencies are equal (i.e. generate the same dependencies).
      * 
      * @param dependenciesA
-     *            A set of functional dependencies.
+     *            A set of functional dependencies (represented as a map).
      * @param dependenciesB
-     *            Another set of functional dependencies.
+     *            Another set of functional dependencies (represented as a map).
      * @return True if the two set of functional dependencies are equal; otherwise, false.
      */
     public static <A> boolean areEqualDependencySets(Map<Set<A>, Set<A>> dependenciesA,
@@ -100,6 +100,34 @@ public class FunctionalDependencyHelper {
                 return false;
         }
         return true;
+    }
+
+    /**
+     * Check whether two set of functional dependencies are equal (i.e. generate the same dependencies).
+     * 
+     * @param dependenciesA
+     *            A set of functional dependencies.
+     * @param dependenciesB
+     *            Another set of functional dependencies.
+     * @return True if the two set of functional dependencies are equal; otherwise, false.
+     */
+    public static <A> boolean areEqualDependencySets(Set<FunctionalDependency<A>> dependenciesA,
+            Set<FunctionalDependency<A>> dependenciesB) {
+        return areEqualDependencySets(setToMap(dependenciesA), setToMap(dependenciesB));
+    }
+
+    /**
+     * Check whether a set of functional dependencies imply a specific dependency 
+     * (i.e. the dependency is in the set's closure).
+     * 
+     * @param dependencies
+     *            A set of functional dependencies.
+     * @param dependency
+     *            A specific functional dependency.
+     * @return True if the set of dependencies imply the specified dependency; otherwise, false.
+     */
+    public static <A> boolean implies(Set<FunctionalDependency<A>> dependencies, FunctionalDependency<A> dependency) {
+        return closureOf(dependency.getDeterminant(), dependencies).contains(dependency.getDependent());
     }
 
     /**
@@ -152,7 +180,7 @@ public class FunctionalDependencyHelper {
      */
     public static <A> Map<Set<A>, Set<A>> project(Map<Set<A>, Set<A>> dependencies, Set<A> attributes) {
         // remove trivial dependencies
-        dependencies = setToMap(Sets.filter(mapToSet(dependencies), new IsTrivialDependencyPredicate<A>()));
+        dependencies = setToMap(Sets.filter(mapToSet(dependencies), new IsNonTrivialDependencyPredicate<A>()));
 
         Map<Set<A>, Set<A>> projectedDependencies = new HashMap<Set<A>, Set<A>>();
 
@@ -188,7 +216,7 @@ public class FunctionalDependencyHelper {
      */
     public static <A> Set<FunctionalDependency<A>> minimalBasis(Set<FunctionalDependency<A>> dependencies) {
         // remove trivial dependencies
-        dependencies = Sets.filter(dependencies, new IsTrivialDependencyPredicate<A>());
+        dependencies = Sets.filter(dependencies, new IsNonTrivialDependencyPredicate<A>());
 
         Map<Set<A>, Set<A>> deps = setToMap(dependencies);
 
@@ -229,10 +257,10 @@ public class FunctionalDependencyHelper {
         return tested;
     }
 
-    private static class IsTrivialDependencyPredicate<A> implements Predicate<FunctionalDependency<A>> {
+    private static class IsNonTrivialDependencyPredicate<A> implements Predicate<FunctionalDependency<A>> {
         @Override
         public boolean apply(FunctionalDependency<A> input) {
-            return input.isTrivial();
+            return !input.isTrivial();
         }
     }
 }
