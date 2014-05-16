@@ -48,7 +48,6 @@ import org.eclipse.incquery.patternlanguage.validation.IIssueCallback;
 import org.eclipse.incquery.querybasedfeatures.runtime.QueryBasedFeatureKind;
 import org.eclipse.incquery.runtime.base.api.FunctionalDependency;
 import org.eclipse.incquery.runtime.base.api.FunctionalDependencyHelper;
-
 import com.google.common.base.Function;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Maps;
@@ -353,15 +352,15 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
     }
 
     private final static Set<FunctionalDependency<Variable>> getDependencies(CompareConstraint constraint) {
-        Set<FunctionalDependency<Variable>> dependencies = Sets.newHashSetWithExpectedSize(2);
+        final Set<FunctionalDependency<Variable>> dependencies = Sets.newHashSetWithExpectedSize(2);
 
         if (constraint.getFeature() == CompareFeature.EQUALITY) {
-            ValueReference leftOp = constraint.getLeftOperand();
-            ValueReference rightOp = constraint.getRightOperand();
-            Variable leftVar = asVariable(leftOp);
-            Variable rightVar = asVariable(rightOp);
-            Set<Variable> leftVarSet = asVariableSet(leftOp);
-            Set<Variable> rightVarSet = asVariableSet(rightOp);
+            final ValueReference leftOp = constraint.getLeftOperand();
+            final ValueReference rightOp = constraint.getRightOperand();
+            final Variable leftVar = asVariable(leftOp);
+            final Variable rightVar = asVariable(rightOp);
+            final Set<Variable> leftVarSet = asVariableSet(leftOp);
+            final Set<Variable> rightVarSet = asVariableSet(rightOp);
 
             if (rightVar != null)
                 dependencies.add(new FunctionalDependency<Variable>(leftVarSet, rightVar));
@@ -373,27 +372,102 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
     }
 
     private final static Set<FunctionalDependency<Variable>> getDependencies(PathExpressionConstraint constraint) {
-        final Variable src = constraint.getHead().getSrc().getVariable();
-        final Variable dst = asVariable(constraint.getHead().getDst());
+        final Variable srcVar = constraint.getHead().getSrc().getVariable();
+        final Variable dstVar = asVariable(constraint.getHead().getDst());
+        final Set<Variable> srcVarSet = asVariableSet(srcVar);
+        final Set<Variable> dstVarSet = asVariableSet(dstVar);
+        final PathExpressionTail tail = constraint.getHead().getTail();
 
-        if (dst != null && isPathExpressionTailSingle(constraint.getHead().getTail())) {
-            return Collections.singleton(new FunctionalDependency<Variable>(asVariableSet(src), dst));
+        if (tail == null)
+            return Collections.emptySet();
+
+        final Set<FunctionalDependency<Variable>> dependencies = Sets.newHashSetWithExpectedSize(2);
+
+        MultiplicityResult pathMultiplicity = getMultiplicity(tail);
+        if (dstVar != null && pathMultiplicity.isToOne) {
+            dependencies.add(new FunctionalDependency<Variable>(srcVarSet, dstVar));
         }
 
-        return Collections.emptySet();
+        if (srcVar != null && pathMultiplicity.isOneTo) {
+            dependencies.add(new FunctionalDependency<Variable>(dstVarSet, srcVar));
+        }
+
+        return dependencies;
     }
 
-    private final static boolean isPathExpressionTailSingle(PathExpressionTail tail) {
-        for (; tail != null; tail = tail.getTail()) {
-            final Type tailType = tail.getType();
-            final ReferenceType tailRefType = tailType != null && tailType instanceof ReferenceType ? (ReferenceType) tailType
-                    : null;
-            final EStructuralFeature refname = tailRefType != null ? tailRefType.getRefname() : null;
-            if (refname == null || refname.isMany()) {
-                return false;
-            }
+    private final static MultiplicityResult getMultiplicity(PathExpressionTail tail) {
+        final EStructuralFeature feature = getFeature(tail);
+        if (feature == null)
+            return MultiplicityResult.from(true, true);
+        else
+            return MultiplicityResult.from(isFeatureMultiplicityToOne(feature), isFeatureMultiplicityOneTo(feature))
+                    .and(getMultiplicity(tail.getTail()));
+    }
+
+    private static final class MultiplicityResult {
+        public final boolean isToOne;
+        public final boolean isOneTo;
+
+        private static final MultiplicityResult[] values = new MultiplicityResult[] {
+                new MultiplicityResult(false, false), new MultiplicityResult(false, true),
+                new MultiplicityResult(true, false), new MultiplicityResult(true, true) };
+
+        private MultiplicityResult(final boolean toOne, final boolean oneTo) {
+            isToOne = toOne;
+            isOneTo = oneTo;
         }
-        return true;
+
+        public static final MultiplicityResult from(final boolean toOne, final boolean oneTo) {
+            return values[hashCode(toOne, oneTo)];
+        }
+
+        public final MultiplicityResult and(MultiplicityResult other) {
+            return from(this.isToOne && other.isToOne, this.isOneTo && other.isOneTo);
+        }
+
+        private static final int hashCode(final boolean toOne, final boolean oneTo) {
+            return (toOne ? 1 : 0) * 2 + (oneTo ? 1 : 0);
+        }
+
+        @Override
+        public int hashCode() {
+            return hashCode(isToOne, isOneTo);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof MultiplicityResult && equals((MultiplicityResult) obj);
+        }
+
+        public boolean equals(MultiplicityResult other) {
+            return this == other;  // NOTE: 'other' can either be null or an element of 'values'
+            //return (other.isOneTo == this.isOneTo) && (other.isToOne == this.isToOne);
+        }
+    }
+
+    private final static boolean isFeatureMultiplicityToOne(EStructuralFeature feature) {
+        return feature == null ? false : !feature.isMany();
+    }
+
+    private final static boolean isFeatureMultiplicityOneTo(EStructuralFeature feature) {
+        if (feature instanceof EReference) {
+            final EReference reference = (EReference) feature;
+            final EReference eOpposite = reference.getEOpposite();
+            return reference.isContainment() || (eOpposite != null && !eOpposite.isMany());
+        } else
+            return false;
+    }
+
+    private final static EStructuralFeature getFeature(ReferenceType refType) {
+        return refType == null ? null : refType.getRefname();
+    }
+
+    private final static EStructuralFeature getFeature(Type type) {
+        return getFeature(type instanceof ReferenceType ? (ReferenceType) type : null);
+    }
+
+    private final static EStructuralFeature getFeature(PathExpressionTail tail) {
+        return getFeature(tail == null ? null : tail.getType());
     }
 
     private final static Set<FunctionalDependency<Variable>> getDependencies(PatternCompositionConstraint constraint) {
@@ -415,13 +489,17 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
         return FunctionalDependencyHelper.project(getDependencies(pattern), Sets.newHashSet(pattern.getParameters()));
     }
 
+    private final static Variable asVariable(VariableValue varValue) {
+        return varValue.getValue().getVariable();
+    }
+
     private final static Variable asVariable(ValueReference valueRef) {
-        return valueRef instanceof VariableValue ? ((VariableValue) valueRef).getValue().getVariable() : null;
+        return valueRef instanceof VariableValue ? asVariable((VariableValue) valueRef) : null;
     }
 
     private final static Set<Variable> asVariableSet(ValueReference valueRef) {
         if (valueRef instanceof VariableValue) {
-            return asVariableSet(asVariable(valueRef));
+            return asVariableSet(asVariable((VariableValue) valueRef));
         } else if (valueRef instanceof AggregatedValue) {
             AggregatedValue aggrValue = (AggregatedValue) valueRef;
             Set<Variable> result = Sets.newHashSet();
@@ -430,12 +508,16 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
             }
             return result;
         } else {
-            return Sets.newHashSet();
+            return Collections.emptySet();
         }
     }
 
     private final static Set<Variable> asVariableSet(Variable var) {
-        return var == null ? Collections.<Variable> emptySet() : Collections.singleton(var);
+        if (var == null) {
+            return Collections.emptySet();
+        } else {
+            return Collections.singleton(var);
+        }
     }
 
     private final static Map<Variable, ValueReference> getTranslationTable(EList<Variable> calleeParams,
@@ -483,5 +565,4 @@ public class QueryBasedFeaturePatternValidator implements IPatternAnnotationAddi
 
         return result;
     }
-
 }
